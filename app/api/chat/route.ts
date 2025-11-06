@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
 
     // Claude APIにリクエスト（tool使用を強制）
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20240620', // Claude 3.5 Sonnet (安定版)
-      // または最新モデルを使用する場合: 'claude-sonnet-4-5-20250929'
+      model: 'claude-sonnet-4-5', // Claude Sonnet 4.5 (2025年9月リリース、最新モデル)
+      // 他の選択肢: 'claude-haiku-4-5' (高速・低コスト), 'claude-3-7-sonnet'
       max_tokens: 4096,
       tools: [htmlTool],
       tool_choice: { type: "tool", name: "render_html" },
