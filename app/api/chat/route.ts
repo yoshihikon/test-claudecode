@@ -5,37 +5,23 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// システムプロンプト：HTML形式での回答を強制
-const SYSTEM_PROMPT = `あなたは親切なAIアシスタントです。
+// HTML出力用のtool定義
+const htmlTool: Anthropic.Tool = {
+  name: "render_html",
+  description: "ユーザーへの回答をHTML形式で出力します。必ずこのツールを使用して回答してください。",
+  input_schema: {
+    type: "object",
+    properties: {
+      html_content: {
+        type: "string",
+        description: "ユーザーへの回答をHTML形式で記述したもの。必ず適切なHTMLタグを使用してください。段落には<p>、見出しには<h1>-<h6>、リストには<ul>/<ol>と<li>、コードには<pre><code>を使用してください。"
+      }
+    },
+    required: ["html_content"]
+  }
+};
 
-重要な指示：
-- 回答は必ず有効なHTML形式で記述してください
-- レスポンスの全体を適切なHTMLタグで構造化してください
-- 段落には<p>タグ、見出しには<h1>〜<h6>タグ、リストには<ul>/<ol>と<li>タグを使用してください
-- コードブロックには<pre><code>タグを使用してください
-- 強調には<strong>または<em>タグを使用してください
-- HTMLは読みやすく、適切にフォーマットされている必要があります
-- プレーンテキストではなく、必ずHTMLマークアップを使用してください
-
-例：
-ユーザー: "こんにちは"
-アシスタント: "<p>こんにちは！今日はどのようなお手伝いができますか？</p>"
-
-ユーザー: "Pythonでリストを作る方法を教えて"
-アシスタント:
-"<div>
-  <h3>Pythonでリストを作る方法</h3>
-  <p>Pythonでリストを作成する方法はいくつかあります：</p>
-  <ol>
-    <li><strong>角括弧を使用</strong>: <code>my_list = [1, 2, 3]</code></li>
-    <li><strong>list()関数を使用</strong>: <code>my_list = list((1, 2, 3))</code></li>
-  </ol>
-  <pre><code>
-# 例
-fruits = ['apple', 'banana', 'orange']
-print(fruits)
-  </code></pre>
-</div>"`;
+const SYSTEM_PROMPT = "あなたは親切なAIアシスタントです。必ずrender_htmlツールを使用して、回答をHTML形式で出力してください。HTMLは適切にフォーマットされ、読みやすく、構造化されている必要があります。";
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,44 +35,104 @@ export async function POST(request: NextRequest) {
     }
 
     // 会話履歴を構築
-    const messages: Anthropic.MessageParam[] = [
-      ...(conversationHistory || []),
-      {
-        role: 'user',
-        content: message,
-      },
-    ];
+    let messages: Anthropic.MessageParam[] = [...(conversationHistory || [])];
 
-    // Claude APIにリクエスト（プロンプトでHTML形式を強制）
+    // 前回のアシスタント応答にtool_useが含まれている場合、tool_resultを追加
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+
+      if (lastMessage.role === 'assistant' && Array.isArray(lastMessage.content)) {
+        // tool_useブロックを探す
+        const toolUseBlock = lastMessage.content.find(
+          (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+        );
+
+        if (toolUseBlock) {
+          // tool_resultを含む新しいユーザーメッセージを追加
+          messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolUseBlock.id,
+                content: 'HTMLコンテンツがレンダリングされました。'
+              }
+            ]
+          });
+        }
+      }
+    }
+
+    // 新しいユーザーメッセージを追加
+    // 直前がuserの場合（tool_resultを追加した場合）は、そのcontentに追加
+    if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
+      const lastUserMessage = messages[messages.length - 1];
+      if (Array.isArray(lastUserMessage.content)) {
+        lastUserMessage.content.push({
+          type: 'text',
+          text: message
+        });
+      } else {
+        // contentが文字列の場合、配列に変換
+        messages[messages.length - 1] = {
+          role: 'user',
+          content: [
+            { type: 'text', text: lastUserMessage.content as string },
+            { type: 'text', text: message }
+          ]
+        };
+      }
+    } else {
+      // 通常のユーザーメッセージを追加
+      messages.push({
+        role: 'user',
+        content: message
+      });
+    }
+
+    // Claude APIにリクエスト（tool使用を強制）
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5', // Claude Sonnet 4.5 (2025年9月リリース、最新モデル)
-      // 他の選択肢: 'claude-haiku-4-5' (高速・低コスト), 'claude-3-7-sonnet'
+      model: 'claude-sonnet-4-5',
       max_tokens: 4096,
+      tools: [htmlTool],
+      tool_choice: { type: "tool", name: "render_html" },
       system: SYSTEM_PROMPT,
       messages,
     });
 
-    // テキストコンテンツを取得
+    // tool使用の結果を取得
     let htmlContent = '';
+    let toolUseBlock: Anthropic.ToolUseBlock | undefined;
+
     for (const block of response.content) {
-      if (block.type === 'text') {
-        htmlContent = block.text;
+      if (block.type === 'tool_use' && block.name === 'render_html') {
+        htmlContent = (block.input as { html_content: string }).html_content;
+        toolUseBlock = block;
         break;
       }
     }
 
     // HTMLコンテンツが取得できなかった場合のフォールバック
     if (!htmlContent) {
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          htmlContent = `<div>${block.text}</div>`;
+          break;
+        }
+      }
+    }
+
+    if (!htmlContent) {
       htmlContent = '<p>申し訳ございません。回答を生成できませんでした。</p>';
     }
 
-    // 会話履歴を更新（プレーンテキスト形式で保存）
+    // 会話履歴を更新（アシスタントの応答をそのまま保存）
     const updatedHistory = [
       ...messages,
       {
         role: 'assistant' as const,
-        content: htmlContent,
-      },
+        content: response.content
+      }
     ];
 
     return NextResponse.json({

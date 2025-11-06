@@ -1,12 +1,13 @@
-# Next.js AI Chat with HTML Output
+# Next.js AI Chat with HTML Tool
 
-Claude APIを使用したAIチャットアプリケーションです。システムプロンプトを使用して、必ずHTML形式で回答を取得します。
+Claude APIを使用したAIチャットアプリケーションです。Claude APIのツール機能を使用して、必ずHTML形式で回答を取得します。
 
 ## 特徴
 
 - 🤖 Claude API（claude-sonnet-4-5）を使用 - 2025年最新モデル
-- 🎨 HTML形式での回答を強制（システムプロンプトで制御）
-- 💬 会話履歴の保持
+- 🎨 HTML形式での回答を強制（tool_choiceで制御）
+- 🔧 Claude APIツールプロトコルに完全準拠
+- 💬 会話履歴の保持（tool_result自動管理）
 - 📱 レスポンシブデザイン
 - ⚡ Next.js 14 App Router使用
 
@@ -16,7 +17,7 @@ Claude APIを使用したAIチャットアプリケーションです。シス�
 - **Claude Haiku 4.5** (`claude-haiku-4-5`): 2025年10月リリース。高速・低コスト。料金: $1/$5 per million tokens
 - **Claude 3.7 Sonnet** (`claude-3-7-sonnet`): 2025年2月リリース。ハイブリッドAI推論モデル
 
-モデルを変更する場合は、`app/api/chat/route.ts`の62行目の`model`パラメータを編集してください。
+モデルを変更する場合は、`app/api/chat/route.ts`の95行目の`model`パラメータを編集してください。
 
 ## 技術スタック
 
@@ -74,35 +75,88 @@ npm run dev
 
 ## 仕組み
 
-### HTML出力の強制
+### HTML Tool による確実な出力
 
-このアプリケーションは、**システムプロンプト**を使用して、ClaudeにHTML形式での回答を強制します。
+このアプリケーションは、**Claude APIのツール機能**を使用して、100%確実にHTML形式で回答を取得します。
 
 ```typescript
-const SYSTEM_PROMPT = `あなたは親切なAIアシスタントです。
-
-重要な指示：
-- 回答は必ず有効なHTML形式で記述してください
-- レスポンスの全体を適切なHTMLタグで構造化してください
-- 段落には<p>タグ、見出しには<h1>〜<h6>タグ、リストには<ul>/<ol>と<li>タグを使用してください
-- コードブロックには<pre><code>タグを使用してください
-...
-`;
+const htmlTool: Anthropic.Tool = {
+  name: "render_html",
+  description: "ユーザーへの回答をHTML形式で出力します。",
+  input_schema: {
+    type: "object",
+    properties: {
+      html_content: {
+        type: "string",
+        description: "HTML形式の回答内容"
+      }
+    },
+    required: ["html_content"]
+  }
+};
 ```
 
-このアプローチの利点：
-- **会話履歴との互換性**: ツール使用に関する複雑なプロトコルを回避
-- **シンプル**: プロンプトだけでHTML形式を確実に取得
-- **柔軟性**: 会話の文脈を維持しながらHTML出力を継続
+`tool_choice: { type: "tool", name: "render_html" }` で、Claudeに必ずこのツールを使用させます。
+
+### ツールプロトコルへの準拠
+
+Claude APIは、ツール使用時に以下のプロトコルを要求します：
+
+```
+User message → Assistant (tool_use) → User (tool_result) → ...
+```
+
+各`tool_use`の後には、必ず`tool_result`が必要です。このアプリでは、バックエンドで自動的に`tool_result`を管理します：
+
+**実装の流れ：**
+
+1. **初回メッセージ**
+   ```
+   User: "こんにちは"
+   → Assistant: tool_use (render_html)
+   ```
+
+2. **2回目以降**
+   ```
+   会話履歴の最後がtool_useの場合
+   → tool_resultを自動挿入
+   → 新しいユーザーメッセージと結合
+
+   User: [tool_result, "次の質問"]
+   → Assistant: tool_use (render_html)
+   ```
+
+**コードの重要部分：**
+
+```typescript
+// 前回のtool_useに対するtool_resultを自動追加
+if (lastMessage.role === 'assistant' && hasToolUse) {
+  messages.push({
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: '...', content: '...' }]
+  });
+}
+
+// 新しいメッセージを同じcontent配列に追加（同じroleの連続を回避）
+lastUserMessage.content.push({ type: 'text', text: message });
+```
 
 ### API エンドポイント
 
 `/api/chat`エンドポイントが以下を行います：
 
 1. ユーザーメッセージと会話履歴を受け取る
-2. システムプロンプトでHTML形式を指定してClaude APIにリクエスト
-3. テキストレスポンスからHTML内容を抽出
-4. HTML内容と更新された会話履歴を返す
+2. 前回の`tool_use`に対する`tool_result`を自動挿入
+3. Claude APIに`tool_choice`付きでリクエスト
+4. `tool_use`ブロックからHTML内容を抽出
+5. HTML内容と更新された会話履歴を返す
+
+### このアプローチの利点
+
+✅ **確実性**: `tool_choice`でHTML形式を100%保証（システムプロンプトより確実）
+✅ **プロトコル準拠**: Claude APIのツール使用ルールに完全準拠
+✅ **自動管理**: `tool_result`を自動で挿入、ユーザーは意識不要
+✅ **会話継続**: 複数ターンの会話も正常に動作
 
 ### フロントエンド
 
