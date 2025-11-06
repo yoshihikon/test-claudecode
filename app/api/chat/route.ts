@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Claude APIにリクエスト（tool使用を強制）
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 4096,
+      max_tokens: 32000,
       tools: [htmlTool],
       tool_choice: { type: "tool", name: "render_html" },
       system: SYSTEM_PROMPT,
