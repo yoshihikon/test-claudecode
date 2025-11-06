@@ -4,11 +4,18 @@ Claude APIを使用したAIチャットアプリケーションです。Claude A
 
 ## 特徴
 
-- 🤖 Claude API（claude-3-5-sonnet-20241022）を使用
+- 🤖 Claude API（claude-3-5-sonnet-20240620）を使用
 - 🎨 HTML形式での回答を強制（toolを使用）
 - 💬 会話履歴の保持
 - 📱 レスポンシブデザイン
 - ⚡ Next.js 14 App Router使用
+
+### 利用可能なモデル
+
+- **Claude 3.5 Sonnet** (`claude-3-5-sonnet-20240620`): デフォルトで使用（安定版）
+- **Claude Sonnet 4.5** (`claude-sonnet-4-5-20250929`): 2025年の最新モデル（コーディングとエージェントタスクに最適）
+
+モデルを変更する場合は、`app/api/chat/route.ts`の`model`パラメータを編集してください。
 
 ## 技術スタック
 
