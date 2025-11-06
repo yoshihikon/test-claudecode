@@ -1,11 +1,11 @@
-# Next.js AI Chat with HTML Tool
+# Next.js AI Chat with HTML Output
 
-Claude APIを使用したAIチャットアプリケーションです。Claude APIのtool機能を使用して、必ずHTML形式で回答を取得します。
+Claude APIを使用したAIチャットアプリケーションです。システムプロンプトを使用して、必ずHTML形式で回答を取得します。
 
 ## 特徴
 
 - 🤖 Claude API（claude-sonnet-4-5）を使用 - 2025年最新モデル
-- 🎨 HTML形式での回答を強制（toolを使用）
+- 🎨 HTML形式での回答を強制（システムプロンプトで制御）
 - 💬 会話履歴の保持
 - 📱 レスポンシブデザイン
 - ⚡ Next.js 14 App Router使用
@@ -16,7 +16,7 @@ Claude APIを使用したAIチャットアプリケーションです。Claude A
 - **Claude Haiku 4.5** (`claude-haiku-4-5`): 2025年10月リリース。高速・低コスト。料金: $1/$5 per million tokens
 - **Claude 3.7 Sonnet** (`claude-3-7-sonnet`): 2025年2月リリース。ハイブリッドAI推論モデル
 
-モデルを変更する場合は、`app/api/chat/route.ts`の46行目の`model`パラメータを編集してください。
+モデルを変更する場合は、`app/api/chat/route.ts`の62行目の`model`パラメータを編集してください。
 
 ## 技術スタック
 
@@ -74,36 +74,34 @@ npm run dev
 
 ## 仕組み
 
-### HTML Tool
+### HTML出力の強制
 
-このアプリケーションは、Claude APIの`tool`機能を使用して、必ずHTML形式で回答を取得します。
+このアプリケーションは、**システムプロンプト**を使用して、ClaudeにHTML形式での回答を強制します。
 
 ```typescript
-const htmlTool = {
-  name: "render_html",
-  description: "ユーザーへの回答をHTML形式で出力します。",
-  input_schema: {
-    type: "object",
-    properties: {
-      html_content: {
-        type: "string",
-        description: "ユーザーへの回答をHTML形式で記述したもの。"
-      }
-    },
-    required: ["html_content"]
-  }
-};
+const SYSTEM_PROMPT = `あなたは親切なAIアシスタントです。
+
+重要な指示：
+- 回答は必ず有効なHTML形式で記述してください
+- レスポンスの全体を適切なHTMLタグで構造化してください
+- 段落には<p>タグ、見出しには<h1>〜<h6>タグ、リストには<ul>/<ol>と<li>タグを使用してください
+- コードブロックには<pre><code>タグを使用してください
+...
+`;
 ```
 
-`tool_choice`パラメータに`{ type: "tool", name: "render_html" }`を指定することで、Claudeに必ずこのtoolを使用させます。
+このアプローチの利点：
+- **会話履歴との互換性**: ツール使用に関する複雑なプロトコルを回避
+- **シンプル**: プロンプトだけでHTML形式を確実に取得
+- **柔軟性**: 会話の文脈を維持しながらHTML出力を継続
 
 ### API エンドポイント
 
 `/api/chat`エンドポイントが以下を行います：
 
 1. ユーザーメッセージと会話履歴を受け取る
-2. Claude APIにtool付きでリクエスト
-3. toolの実行結果からHTML内容を抽出
+2. システムプロンプトでHTML形式を指定してClaude APIにリクエスト
+3. テキストレスポンスからHTML内容を抽出
 4. HTML内容と更新された会話履歴を返す
 
 ### フロントエンド
